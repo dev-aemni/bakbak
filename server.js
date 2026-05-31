@@ -48,53 +48,20 @@ const starterDb = {
       role: "Moderator"
     }
   ],
-  servers: [
-    {
-      id: "srv-bakbak",
-      name: "BakBak HQ",
-      icon: "B",
-      privacy: "public",
-      roles: ["Owner", "Admin", "Moderator", "Member"],
-      channels: [
-        { id: "ch-general", name: "general", type: "text", topic: "Real-time public chat" },
-        { id: "ch-announcements", name: "announcements", type: "announcement", topic: "Pinned launches and updates" },
-        { id: "ch-forum", name: "forum", type: "forum", topic: "Q&A and longer discussions" },
-        { id: "ch-voice", name: "voice-room", type: "voice", topic: "Low-latency voice room placeholder" },
-        { id: "ch-video", name: "video-stage", type: "video", topic: "Group video and screen share placeholder" }
-      ]
-    }
-  ],
   chats: [
-    { id: "dm-u-admin-u-mira", type: "dm", name: "Mira", members: ["u-admin", "u-mira"] },
-    { id: "grp-design", type: "group", name: "Design Squad", members: ["u-admin", "u-mira"] }
+    { id: "dm-u-admin-u-mira", type: "dm", name: "Mira", members: ["u-admin", "u-mira"] }
   ],
   messages: [
     {
       id: "msg-welcome",
-      channelId: "ch-general",
+      channelId: "dm-u-admin-u-mira",
       authorId: "u-mira",
-      text: "Welcome to BakBak. Drop links, images, videos, docs, stickers, GIFs, or start a thread.",
+      text: "Welcome to BakBak DMs. Open any person by user ID and start a private chat.",
       createdAt: Date.now() - 600000,
       reactions: [{ emoji: "🔥", count: 3 }],
       pinned: true,
       replies: []
-    },
-    {
-      id: "msg-roadmap",
-      channelId: "ch-announcements",
-      authorId: "u-admin",
-      text: "Core realtime chat, channels, previews, uploads, PWA, responsive UI, moderation panels, and smart feature surfaces are live in this build.",
-      createdAt: Date.now() - 300000,
-      reactions: [{ emoji: "✅", count: 5 }],
-      pinned: true,
-      replies: []
     }
-  ],
-  events: [
-    { id: "evt-launch", title: "BakBak launch check", startsAt: "Today 8:00 PM", channel: "general" }
-  ],
-  polls: [
-    { id: "poll-ui", question: "Favorite default theme?", options: ["Green", "Blue", "Purple"], votes: [6, 4, 3] }
   ],
   auditLogs: []
 };
@@ -103,11 +70,63 @@ function readDb() {
   if (!fs.existsSync(dbPath)) {
     fs.writeFileSync(dbPath, JSON.stringify(starterDb, null, 2));
   }
-  return JSON.parse(fs.readFileSync(dbPath, "utf8"));
+  const db = JSON.parse(fs.readFileSync(dbPath, "utf8"));
+  const normalized = normalizeDb(db);
+  if (normalized.changed) writeDb(normalized.db);
+  return normalized.db;
 }
 
 function writeDb(db) {
   fs.writeFileSync(dbPath, JSON.stringify(db, null, 2));
+}
+
+function normalizeDb(db) {
+  let changed = false;
+  for (const key of ["servers", "events", "polls"]) {
+    if (key in db) {
+      delete db[key];
+      changed = true;
+    }
+  }
+
+  if (!Array.isArray(db.chats)) {
+    db.chats = [];
+    changed = true;
+  }
+  const dmChats = db.chats.filter(chat => chat.type === "dm");
+  if (dmChats.length !== db.chats.length) {
+    db.chats = dmChats;
+    changed = true;
+  }
+
+  const defaultDm = getOrCreateDm(db, "u-admin", "u-mira");
+  if (!Array.isArray(db.messages)) {
+    db.messages = [];
+    changed = true;
+  }
+  for (const message of db.messages) {
+    if (!db.chats.some(chat => chat.id === message.channelId) && defaultDm) {
+      message.channelId = defaultDm.id;
+      changed = true;
+    }
+  }
+  return { db, changed };
+}
+
+function dmIdFor(a, b) {
+  return `dm-${[a, b].sort().join("-")}`;
+}
+
+function getOrCreateDm(db, me, userId) {
+  const user = db.users.find(item => item.id === userId);
+  if (!user) return null;
+  const id = dmIdFor(me, userId);
+  let chat = db.chats.find(item => item.id === id);
+  if (!chat) {
+    chat = { id, type: "dm", name: user.displayName, members: [me, userId] };
+    db.chats.push(chat);
+  }
+  return chat;
 }
 
 function safeName(name) {
@@ -137,11 +156,27 @@ app.get("/", (_req, res) => {
 });
 
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, name: "BakBak", realtime: true });
+  res.json({ ok: true, name: "BakBak", realtime: true, mode: "dm" });
 });
 
 app.get("/api/state", (_req, res) => {
   res.json(readDb());
+});
+
+app.post("/api/dm", (req, res) => {
+  const db = readDb();
+  const me = String(req.body.me || "u-admin");
+  const userId = String(req.body.userId || "").trim();
+  const meUser = db.users.find(user => user.id === me);
+  const user = db.users.find(item => item.id === userId);
+
+  if (!meUser) return res.status(400).json({ error: "Current user not found" });
+  if (!user) return res.status(404).json({ error: `No user found with ID ${userId}` });
+  if (user.id === me) return res.status(400).json({ error: "Pick another user's ID" });
+
+  const chat = getOrCreateDm(db, me, user.id);
+  writeDb(db);
+  res.json({ chat, user });
 });
 
 app.post("/api/upload", upload.single("file"), (req, res) => {
@@ -177,7 +212,7 @@ app.post("/api/messages", (req, res) => {
 function createMessage(payload) {
   return {
     id: crypto.randomUUID(),
-    channelId: payload.channelId || "ch-general",
+    channelId: payload.channelId || "dm-u-admin-u-mira",
     authorId: payload.authorId || "u-admin",
     text: String(payload.text || "").slice(0, 4000),
     attachments: payload.attachments || [],
@@ -206,6 +241,7 @@ io.on("connection", socket => {
 
   socket.on("message:create", payload => {
     const db = readDb();
+    if (!db.chats.some(chat => chat.id === payload.channelId)) return;
     const message = createMessage(payload);
     db.messages.push(message);
     writeDb(db);

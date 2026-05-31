@@ -3,20 +3,16 @@ const socket = io();
 const state = {
   me: "u-admin",
   db: null,
-  activeChannel: "ch-general",
-  activeServer: "srv-bakbak",
+  activeChat: null,
   uploads: [],
   editingId: null,
   replyTo: null
 };
 
 const els = {
-  serverRail: document.querySelector("#serverRail"),
-  channelList: document.querySelector("#channelList"),
   dmList: document.querySelector("#dmList"),
   memberList: document.querySelector("#memberList"),
-  eventList: document.querySelector("#eventList"),
-  pollBox: document.querySelector("#pollBox"),
+  userIdList: document.querySelector("#userIdList"),
   messageList: document.querySelector("#messageList"),
   messageInput: document.querySelector("#messageInput"),
   composer: document.querySelector("#composer"),
@@ -26,6 +22,7 @@ const els = {
   typingLine: document.querySelector("#typingLine"),
   messageCount: document.querySelector("#messageCount"),
   onlineCount: document.querySelector("#onlineCount"),
+  dmCount: document.querySelector("#dmCount"),
   attachBtn: document.querySelector("#attachBtn"),
   fileInput: document.querySelector("#fileInput"),
   dropZone: document.querySelector("#dropZone"),
@@ -35,45 +32,44 @@ const els = {
   closeModal: document.querySelector("#closeModal"),
   mobileMenu: document.querySelector("#mobileMenu"),
   sidebar: document.querySelector(".sidebar"),
-  themeToggle: document.querySelector("#themeToggle")
+  themeToggle: document.querySelector("#themeToggle"),
+  dmByIdForm: document.querySelector("#dmByIdForm"),
+  dmUserIdInput: document.querySelector("#dmUserIdInput"),
+  dmByIdStatus: document.querySelector("#dmByIdStatus")
 };
 
 async function boot() {
-  const response = await fetch("/api/state");
+  const response = await fetch("api/state");
   state.db = await response.json();
+  normalizeDmState();
   renderAll();
-  socket.emit("channel:join", state.activeChannel);
-  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+  joinActiveChat();
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+}
+
+function normalizeDmState() {
+  state.db.chats = (state.db.chats || []).filter(chat => chat.type === "dm");
+  state.activeChat = state.db.chats[0]?.id || null;
 }
 
 function renderAll() {
-  renderServers();
-  renderChannels();
+  renderDms();
   renderPeople();
-  renderEvents();
-  renderPoll();
   renderMessages();
 }
 
-function renderServers() {
-  els.serverRail.innerHTML = state.db.servers.map(server => `
-    <button class="server-icon ${server.id === state.activeServer ? "active" : ""}" data-server="${server.id}" title="${escapeHtml(server.name)}">${escapeHtml(server.icon)}</button>
-  `).join("");
-}
-
-function renderChannels() {
-  const server = getServer();
-  els.channelList.innerHTML = server.channels.map(channel => `
-    <button class="nav-item ${channel.id === state.activeChannel ? "active" : ""}" data-channel="${channel.id}">
-      <span>${channelIcon(channel.type)}</span><span>${escapeHtml(channel.name)}</span><small>${escapeHtml(channel.type)}</small>
-    </button>
-  `).join("");
-
-  els.dmList.innerHTML = state.db.chats.map(chat => `
-    <button class="nav-item ${chat.id === state.activeChannel ? "active" : ""}" data-channel="${chat.id}">
-      <span>${chat.type === "dm" ? "@" : "◌"}</span><span>${escapeHtml(chat.name)}</span><small>${escapeHtml(chat.type)}</small>
-    </button>
-  `).join("");
+function renderDms() {
+  els.dmList.innerHTML = state.db.chats.map(chat => {
+    const partner = getDmPartner(chat);
+    return `
+      <button class="nav-item ${chat.id === state.activeChat ? "active" : ""}" data-chat="${chat.id}">
+        <span class="mini-avatar" style="background:${escapeAttr(partner?.theme || "#53bdeb")}">${escapeHtml(partner?.avatar || "@")}</span>
+        <span>${escapeHtml(partner?.displayName || chat.name)}</span>
+        <small>${escapeHtml(partner?.id || "dm")}</small>
+      </button>
+    `;
+  }).join("") || "<p class='empty-state'>Open a DM by user ID.</p>";
+  els.dmCount.textContent = state.db.chats.length;
   updateRoomHeader();
 }
 
@@ -84,39 +80,33 @@ function renderPeople() {
       <div><strong>${escapeHtml(user.displayName)}</strong><small>${escapeHtml(user.role)} · ${escapeHtml(user.status)}</small></div>
     </div>
   `).join("");
+
+  els.userIdList.innerHTML = state.db.users
+    .filter(user => user.id !== state.me)
+    .map(user => `<button class="id-chip" data-user-id="${escapeAttr(user.id)}">${escapeHtml(user.id)} <span>${escapeHtml(user.displayName)}</span></button>`)
+    .join("");
+
   els.onlineCount.textContent = state.db.users.filter(user => user.status === "online").length;
-}
-
-function renderEvents() {
-  els.eventList.innerHTML = state.db.events.map(event => `
-    <div><strong>${escapeHtml(event.title)}</strong><br><span>${escapeHtml(event.startsAt)} · #${escapeHtml(event.channel)}</span></div>
-  `).join("");
-}
-
-function renderPoll() {
-  const poll = state.db.polls[0];
-  const max = Math.max(...poll.votes, 1);
-  els.pollBox.innerHTML = `<strong>${escapeHtml(poll.question)}</strong>` + poll.options.map((option, index) => `
-    <div class="poll-option">
-      <span>${escapeHtml(option)} · ${poll.votes[index]}</span>
-      <div class="poll-bar"><span style="width:${Math.round((poll.votes[index] / max) * 100)}%"></span></div>
-    </div>
-  `).join("");
 }
 
 function renderMessages() {
   const query = els.globalSearch.value.trim().toLowerCase();
-  let messages = state.db.messages.filter(message => message.channelId === state.activeChannel);
+  let messages = state.db.messages.filter(message => message.channelId === state.activeChat);
   if (query) {
     messages = state.db.messages.filter(message =>
       (message.text || "").toLowerCase().includes(query) ||
       findUser(message.authorId)?.displayName.toLowerCase().includes(query)
     );
   }
-  els.messageList.innerHTML = messages.map(renderMessage).join("");
+  els.messageList.innerHTML = messages.map(renderMessage).join("") || renderEmptyMessages();
   els.messageCount.textContent = state.db.messages.length;
   renderPinned(messages);
   els.messageList.scrollTop = els.messageList.scrollHeight;
+}
+
+function renderEmptyMessages() {
+  if (!state.activeChat) return "<div class='empty-state empty-state--center'>Open a DM by user ID to start chatting.</div>";
+  return "<div class='empty-state empty-state--center'>No messages here yet.</div>";
 }
 
 function renderMessage(message) {
@@ -141,7 +131,7 @@ function renderMessage(message) {
         <div class="message-actions">
           ${reactions}
           <button data-action="reply">Reply</button>
-          <button data-action="react">＋Emoji</button>
+          <button data-action="react">+ Emoji</button>
           <button data-action="pin">Pin</button>
           <button data-action="forward">Forward</button>
           ${mine && !deleted ? `<button data-action="edit">Edit</button><button data-action="delete">Delete</button>` : ""}
@@ -155,7 +145,7 @@ function renderAttachment(file) {
   if (file.type === "image") return `<a class="attachment" href="${escapeAttr(file.url)}" target="_blank"><img src="${escapeAttr(file.url)}" alt="${escapeAttr(file.name)}"></a>`;
   if (file.type === "video") return `<a class="attachment" href="${escapeAttr(file.url)}" target="_blank"><video src="${escapeAttr(file.url)}" controls></video></a>`;
   if (file.type === "audio") return `<div class="attachment"><audio src="${escapeAttr(file.url)}" controls></audio><div class="attachment__file">${escapeHtml(file.name)}</div></div>`;
-  return `<a class="attachment attachment__file" href="${escapeAttr(file.url)}" target="_blank">📎 ${escapeHtml(file.name)}</a>`;
+  return `<a class="attachment attachment__file" href="${escapeAttr(file.url)}" target="_blank">File: ${escapeHtml(file.name)}</a>`;
 }
 
 function renderPreview(preview) {
@@ -180,9 +170,14 @@ function renderPinned(messages) {
 async function sendMessage(event) {
   event.preventDefault();
   const text = els.messageInput.value.trim();
+  if (!state.activeChat) {
+    setDmStatus("Open a DM before sending.", true);
+    return;
+  }
   if (!text && !state.uploads.length) return;
+
   const payload = {
-    channelId: state.activeChannel,
+    channelId: state.activeChat,
     authorId: state.me,
     text,
     attachments: state.uploads,
@@ -200,7 +195,49 @@ async function sendMessage(event) {
   state.uploads = [];
   state.replyTo = null;
   els.messageInput.value = "";
+  els.messageInput.placeholder = "Message BakBak";
   autosize();
+}
+
+async function openDmByUserId(userId) {
+  const cleanId = userId.trim();
+  if (!cleanId) return;
+
+  const response = await fetch("api/dm", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userId: cleanId, me: state.me })
+  });
+  const result = await response.json();
+  if (!response.ok) {
+    setDmStatus(result.error || "Could not open DM.", true);
+    return;
+  }
+
+  upsertChat(result.chat);
+  if (result.user && !findUser(result.user.id)) state.db.users.push(result.user);
+  state.activeChat = result.chat.id;
+  joinActiveChat();
+  setDmStatus(`Opened DM with ${result.user.displayName}.`);
+  els.dmUserIdInput.value = "";
+  renderAll();
+  els.sidebar.classList.remove("open");
+  els.messageInput.focus();
+}
+
+function upsertChat(chat) {
+  const index = state.db.chats.findIndex(item => item.id === chat.id);
+  if (index >= 0) state.db.chats[index] = chat;
+  else state.db.chats.push(chat);
+}
+
+function joinActiveChat() {
+  if (state.activeChat) socket.emit("channel:join", state.activeChat);
+}
+
+function setDmStatus(message, isError = false) {
+  els.dmByIdStatus.textContent = message;
+  els.dmByIdStatus.classList.toggle("error", isError);
 }
 
 function buildPreview(text) {
@@ -220,29 +257,21 @@ async function uploadFiles(files) {
   for (const file of files) {
     const form = new FormData();
     form.append("file", file);
-    const response = await fetch("/api/upload", { method: "POST", body: form });
+    const response = await fetch("api/upload", { method: "POST", body: form });
     state.uploads.push(await response.json());
   }
   els.messageInput.placeholder = `${state.uploads.length} file(s) ready. Add a caption`;
 }
 
 function updateRoomHeader() {
-  const channel = findChannel(state.activeChannel);
-  const chat = state.db.chats.find(item => item.id === state.activeChannel);
-  els.roomName.textContent = channel ? `${channel.type === "text" ? "#" : ""}${channel.name}` : chat?.name || "BakBak";
-  els.roomTopic.textContent = channel?.topic || (chat ? `${chat.type.toUpperCase()} chat` : "Community chat");
+  const chat = state.db.chats.find(item => item.id === state.activeChat);
+  const partner = chat ? getDmPartner(chat) : null;
+  els.roomName.textContent = partner ? partner.displayName : "Direct messages";
+  els.roomTopic.textContent = partner ? `Private DM · ${partner.id}` : "Open a DM by user ID";
 }
 
-function channelIcon(type) {
-  return { text: "#", voice: "☎", video: "▣", announcement: "!", forum: "?" }[type] || "#";
-}
-
-function getServer() {
-  return state.db.servers.find(server => server.id === state.activeServer) || state.db.servers[0];
-}
-
-function findChannel(id) {
-  return state.db.servers.flatMap(server => server.channels).find(channel => channel.id === id);
+function getDmPartner(chat) {
+  return state.db.users.find(user => chat.members.includes(user.id) && user.id !== state.me) || null;
 }
 
 function findUser(id) {
@@ -278,14 +307,17 @@ function openModal(title, html) {
 }
 
 document.addEventListener("click", event => {
-  const channelButton = event.target.closest("[data-channel]");
-  if (channelButton) {
-    state.activeChannel = channelButton.dataset.channel;
-    socket.emit("channel:join", state.activeChannel);
-    renderChannels();
+  const chatButton = event.target.closest("[data-chat]");
+  if (chatButton) {
+    state.activeChat = chatButton.dataset.chat;
+    joinActiveChat();
+    renderDms();
     renderMessages();
     els.sidebar.classList.remove("open");
   }
+
+  const userIdButton = event.target.closest("[data-user-id]");
+  if (userIdButton) openDmByUserId(userIdButton.dataset.userId);
 
   const messageEl = event.target.closest("[data-message]");
   const action = event.target.closest("[data-action]")?.dataset.action;
@@ -317,8 +349,8 @@ document.addEventListener("click", event => {
   if (reaction) socket.emit("message:react", { id: reaction.dataset.react, emoji: reaction.dataset.emoji });
 });
 
-document.querySelector("#voiceBtn").addEventListener("click", () => openModal("Voice room", "<p>Voice, push-to-talk, noise suppression, activity detection, and recording controls are represented here for the production RTC layer.</p><div class='feature-tags'><span>Muted</span><span>Push-to-talk</span><span>Noise suppression</span><span>Recording off</span></div>"));
-document.querySelector("#videoBtn").addEventListener("click", () => openModal("Video stage", "<p>Group video calls and live streaming can connect to WebRTC/Twilio/LiveKit from this surface.</p>"));
+document.querySelector("#voiceBtn").addEventListener("click", () => openModal("Voice call", "<p>Voice calling controls are ready for the production RTC layer.</p><div class='feature-tags'><span>Muted</span><span>Push-to-talk</span><span>Noise suppression</span><span>Recording off</span></div>"));
+document.querySelector("#videoBtn").addEventListener("click", () => openModal("Video call", "<p>Group video calls and live streaming can connect to WebRTC/Twilio/LiveKit from this surface.</p>"));
 document.querySelector("#screenBtn").addEventListener("click", () => openModal("Screen share", "<p>Screen sharing permission starts from this control in supported browsers.</p>"));
 document.querySelector("#profileBtn").addEventListener("click", () => openModal("Profile", "<p><strong>Aemni</strong><br>@aemni<br>Owner · Online</p><div class='feature-tags'><span>Banner</span><span>Bio</span><span>Social links</span><span>Custom theme</span></div>"));
 document.querySelector("#gifBtn").addEventListener("click", () => {
@@ -330,16 +362,20 @@ document.querySelector("#voiceNoteBtn").addEventListener("click", () => openModa
 document.querySelectorAll("[data-smart]").forEach(button => {
   button.addEventListener("click", () => {
     const title = button.textContent;
-    openModal(title, "<p>This panel is ready for AI chatbot, summaries, translation, smart search, voice-to-text, text-to-speech, moderation assistance, bot API keys, and webhooks.</p>");
+    openModal(title, "<p>This panel is ready for AI summaries, translation, smart search, voice-to-text, text-to-speech, moderation assistance, bot API keys, and webhooks.</p>");
   });
 });
 
+els.dmByIdForm.addEventListener("submit", event => {
+  event.preventDefault();
+  openDmByUserId(els.dmUserIdInput.value);
+});
 els.composer.addEventListener("submit", sendMessage);
 els.attachBtn.addEventListener("click", () => els.fileInput.click());
 els.fileInput.addEventListener("change", event => uploadFiles(event.target.files));
 els.messageInput.addEventListener("input", () => {
   autosize();
-  socket.emit("typing", { channelId: state.activeChannel, name: "Aemni" });
+  if (state.activeChat) socket.emit("typing", { channelId: state.activeChat, name: "Aemni" });
 });
 els.globalSearch.addEventListener("input", renderMessages);
 els.closeModal.addEventListener("click", () => els.modal.close());
