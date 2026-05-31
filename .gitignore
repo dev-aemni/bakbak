@@ -3,6 +3,7 @@ npm-debug.log*
 .server.pid
 bakbak-full-code.zip
 data/bakbak.json
-public/uploads/*
-!public/uploads/.gitkeep
+uploads/*
+!uploads/.gitkeep
 *.bat
+*.ps1

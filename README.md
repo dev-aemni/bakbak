@@ -1,42 +1,14 @@
 # BakBak
 
-BakBak is a modern Discord/Telegram/WhatsApp-style communication platform starter built with Node.js, Express, Socket.IO, HTML, CSS, and JavaScript.
+BakBak is a modern communication platform with a WhatsApp-clean interface and Discord-style structure.
 
-## Included
+- Real-time messaging, DMs, groups, servers, channels, replies, edits, deletes, reactions, pins, and forwards.
+- Voice and video-ready surfaces for calls, screen sharing, voice rooms, and live sessions.
+- Media sharing for images, video, audio, documents, drag-and-drop uploads, previews, GIFs, stickers, and link cards.
+- Community layers for roles, permissions, moderation, events, polls, forums, announcements, search, analytics, and bots.
+- AI-facing surfaces for summaries, moderation, translation, smart search, voice-to-text, and text-to-speech.
+- Security and control for 2FA, sessions, device management, login alerts, blocking, reporting, audit logs, and rate limits.
+- Customization for themes, emojis, stickers, avatars, server icons, and channel icons.
+- PWA support and responsive layout for desktop and mobile.
 
-- Real-time channels, DMs/groups surface, typing events, message edit/delete/reactions/replies/forward/pin.
-- Image, video, audio, document uploads with drag-and-drop.
-- Image/video URL previews with fixed responsive preview sizing.
-- Community server/channel UI, roles, events, polls, member panel, moderation/security/AI/bot surfaces.
-- Responsive desktop and mobile UI inspired by WhatsApp with Discord-style servers/channels.
-- PWA manifest and service worker.
-- Render deployment config.
-
-## Run locally
-
-```bash
-npm install
-npm start
-```
-
-Open `http://localhost:3000`.
-
-## Render
-
-Create a Render Web Service from this repo.
-
-- Build command: `npm install`
-- Start command: `npm start`
-- Environment: Node
-
-Render will also read `render.yaml`.
-
-## GitHub Pages note
-
-GitHub Pages can host only the static frontend. The real-time Socket.IO server needs Render or another Node host. For `https://dev-aemni.github.io/bakbak/`, use it as a static landing/client build or point it to the Render backend.
-
-## Create zip
-
-```bash
-npm run zip
-```
+The site root is the front end, so GitHub Pages can serve `/bakbak/` directly from `index.html`, while Render runs the Node backend for realtime features.

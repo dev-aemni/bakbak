@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "zip": "powershell -NoProfile -Command Compress-Archive -Path package.json,server.js,render.yaml,README.md,public,data -DestinationPath bakbak-full-code.zip -Force"
+    "zip": "powershell -NoProfile -Command Compress-Archive -Path package.json,server.js,render.yaml,README.md,index.html,styles.css,app.js,manifest.webmanifest,sw.js,icons,uploads,data -DestinationPath bakbak-full-code.zip -Force"
   },
   "keywords": [
     "chat",

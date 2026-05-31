@@ -17,9 +17,8 @@ const io = new Server(server, {
 });
 
 const root = __dirname;
-const publicDir = path.join(root, "public");
 const dataDir = path.join(root, "data");
-const uploadDir = path.join(publicDir, "uploads");
+const uploadDir = path.join(root, "uploads");
 const dbPath = path.join(dataDir, "bakbak.json");
 
 for (const dir of [dataDir, uploadDir]) {
@@ -130,7 +129,12 @@ app.use(helmet({
 app.use(cors());
 app.use(express.json({ limit: "2mb" }));
 app.use(morgan("tiny"));
-app.use(express.static(publicDir));
+app.use("/uploads", express.static(uploadDir));
+app.use(express.static(root, { index: false }));
+
+app.get("/", (_req, res) => {
+  res.sendFile(path.join(root, "index.html"));
+});
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, name: "BakBak", realtime: true });
