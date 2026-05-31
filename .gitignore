@@ -5,3 +5,4 @@ bakbak-full-code.zip
 data/bakbak.json
 public/uploads/*
 !public/uploads/.gitkeep
+*.bat
