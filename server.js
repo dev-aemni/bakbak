@@ -66,6 +66,8 @@ const starterDb = {
   auditLogs: []
 };
 
+const idPattern = /^u-[a-z0-9][a-z0-9_-]{1,28}$/;
+
 function readDb() {
   if (!fs.existsSync(dbPath)) {
     fs.writeFileSync(dbPath, JSON.stringify(starterDb, null, 2));
@@ -82,6 +84,10 @@ function writeDb(db) {
 
 function normalizeDb(db) {
   let changed = false;
+  if (!Array.isArray(db.users)) {
+    db.users = starterDb.users;
+    changed = true;
+  }
   for (const key of ["servers", "events", "polls"]) {
     if (key in db) {
       delete db[key];
@@ -118,6 +124,8 @@ function dmIdFor(a, b) {
 }
 
 function getOrCreateDm(db, me, userId) {
+  const meUser = db.users.find(item => item.id === me);
+  if (!meUser) return null;
   const user = db.users.find(item => item.id === userId);
   if (!user) return null;
   const id = dmIdFor(me, userId);
@@ -127,6 +135,22 @@ function getOrCreateDm(db, me, userId) {
     db.chats.push(chat);
   }
   return chat;
+}
+
+function cleanUserId(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  const withPrefix = raw.startsWith("u-") ? raw : `u-${raw}`;
+  return withPrefix.replace(/[^a-z0-9_-]/g, "-").replace(/-+/g, "-").slice(0, 30);
+}
+
+function makeAvatar(displayName, username) {
+  return String(displayName || username || "?").trim().charAt(0).toUpperCase() || "?";
+}
+
+function randomTheme(seed) {
+  const colors = ["#00a884", "#53bdeb", "#f59e0b", "#ef4444", "#14b8a6", "#8b5cf6", "#f97316"];
+  const hash = crypto.createHash("sha1").update(seed).digest()[0];
+  return colors[hash % colors.length];
 }
 
 function safeName(name) {
@@ -163,6 +187,41 @@ app.get("/api/state", (_req, res) => {
   res.json(readDb());
 });
 
+app.post("/api/accounts", (req, res) => {
+  const db = readDb();
+  const username = String(req.body.username || "").trim().toLowerCase().replace(/[^a-z0-9_.-]/g, "");
+  const displayName = String(req.body.displayName || username || "").trim().slice(0, 40);
+  const requestedId = cleanUserId(req.body.id || username || displayName);
+
+  if (!username || username.length < 2) return res.status(400).json({ error: "Username must be at least 2 characters." });
+  if (!displayName) return res.status(400).json({ error: "Display name is required." });
+  if (!idPattern.test(requestedId)) return res.status(400).json({ error: "User ID must look like u-name and use letters, numbers, _ or -." });
+  if (db.users.some(user => user.id === requestedId)) return res.status(409).json({ error: `User ID ${requestedId} is already taken.` });
+  if (db.users.some(user => user.username === username)) return res.status(409).json({ error: `Username ${username} is already taken.` });
+
+  const user = {
+    id: requestedId,
+    username,
+    displayName,
+    avatar: makeAvatar(displayName, username),
+    bio: "",
+    status: "online",
+    theme: randomTheme(requestedId),
+    role: "Member"
+  };
+  db.users.push(user);
+  db.auditLogs.unshift({
+    id: crypto.randomUUID(),
+    action: "account.create",
+    actorId: user.id,
+    targetId: user.id,
+    at: Date.now()
+  });
+  writeDb(db);
+  io.emit("account:new", user);
+  res.status(201).json({ user });
+});
+
 app.post("/api/dm", (req, res) => {
   const db = readDb();
   const me = String(req.body.me || "u-admin");
@@ -195,6 +254,9 @@ app.post("/api/upload", upload.single("file"), (req, res) => {
 
 app.post("/api/messages", (req, res) => {
   const db = readDb();
+  const channel = db.chats.find(chat => chat.id === req.body.channelId);
+  if (!channel) return res.status(404).json({ error: "Chat not found" });
+  if (!channel.members.includes(req.body.authorId)) return res.status(403).json({ error: "Author is not a member of this chat" });
   const message = createMessage(req.body);
   db.messages.push(message);
   db.auditLogs.unshift({
@@ -241,7 +303,8 @@ io.on("connection", socket => {
 
   socket.on("message:create", payload => {
     const db = readDb();
-    if (!db.chats.some(chat => chat.id === payload.channelId)) return;
+    const channel = db.chats.find(chat => chat.id === payload.channelId);
+    if (!channel || !channel.members.includes(payload.authorId)) return;
     const message = createMessage(payload);
     db.messages.push(message);
     writeDb(db);

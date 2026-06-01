@@ -146,8 +146,18 @@ button { cursor: pointer; }
   gap: 8px;
   padding: 0 8px;
 }
+.account-form {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+}
+.current-account {
+  padding: 0 8px 4px;
+}
 .dm-id-form input,
 .dm-id-form button,
+.account-form input,
+.account-form button,
 .id-chip {
   min-height: 40px;
   border: 1px solid var(--line);
@@ -160,7 +170,18 @@ button { cursor: pointer; }
   outline: 0;
   padding: 0 10px;
 }
+.account-form input {
+  min-width: 0;
+  outline: 0;
+  padding: 0 10px;
+}
 .dm-id-form button {
+  padding: 0 12px;
+  background: var(--brand);
+  color: #04120f;
+  font-weight: 800;
+}
+.account-form button {
   padding: 0 12px;
   background: var(--brand);
   color: #04120f;

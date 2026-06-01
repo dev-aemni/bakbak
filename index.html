@@ -7,7 +7,7 @@
     <title>BakBak</title>
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="icon" href="icons/icon-192.svg">
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=3">
   </head>
   <body>
     <div class="app-shell">
@@ -17,13 +17,25 @@
             <strong>BakBak</strong>
             <span>Direct messages</span>
           </div>
-          <button id="themeToggle" class="icon-btn" title="Toggle theme">○</button>
+          <button id="themeToggle" class="icon-btn" title="Toggle theme">O</button>
         </header>
 
         <label class="search-box">
-          <span>⌕</span>
+          <span>Search</span>
           <input id="globalSearch" type="search" placeholder="Search messages, files, users">
         </label>
+
+        <section class="panel account-panel">
+          <div class="panel__title">Account</div>
+          <div id="currentAccount" class="current-account"></div>
+          <form id="accountForm" class="account-form">
+            <input id="displayNameInput" type="text" autocomplete="name" placeholder="Display name">
+            <input id="usernameInput" type="text" autocomplete="username" placeholder="username">
+            <input id="accountIdInput" type="text" autocomplete="off" placeholder="u-yourid">
+            <button type="submit">Create / switch</button>
+          </form>
+          <p id="accountStatus" class="form-status" role="status"></p>
+        </section>
 
         <section class="panel">
           <div class="panel__title">DM by user ID</div>
@@ -50,15 +62,15 @@
 
       <main class="chat">
         <header class="chat-header">
-          <button id="mobileMenu" class="icon-btn mobile-only" title="Open navigation">☰</button>
+          <button id="mobileMenu" class="icon-btn mobile-only" title="Open navigation">Menu</button>
           <div>
             <h1 id="roomName">Direct messages</h1>
             <p id="roomTopic">Private chat</p>
           </div>
           <div class="header-actions">
-            <button class="icon-btn" id="voiceBtn" title="Voice call">☎</button>
-            <button class="icon-btn" id="videoBtn" title="Video call">▣</button>
-            <button class="icon-btn" id="screenBtn" title="Screen share">⇱</button>
+            <button class="icon-btn" id="voiceBtn" title="Voice call">Call</button>
+            <button class="icon-btn" id="videoBtn" title="Video call">Cam</button>
+            <button class="icon-btn" id="screenBtn" title="Screen share">Share</button>
             <button class="icon-btn" id="profileBtn" title="Profile">A</button>
           </div>
         </header>
@@ -72,10 +84,10 @@
             <form id="composer" class="composer">
               <input id="fileInput" type="file" multiple hidden>
               <button type="button" id="attachBtn" class="icon-btn" title="Attach files">+</button>
-              <button type="button" id="voiceNoteBtn" class="icon-btn" title="Voice note">●</button>
+              <button type="button" id="voiceNoteBtn" class="icon-btn" title="Voice note">Rec</button>
               <textarea id="messageInput" rows="1" placeholder="Message BakBak"></textarea>
-              <button type="button" id="gifBtn" class="icon-btn" title="GIF/sticker">☺</button>
-              <button class="send-btn" title="Send message">➤</button>
+              <button type="button" id="gifBtn" class="icon-btn" title="GIF/sticker">GIF</button>
+              <button class="send-btn" title="Send message">Send</button>
             </form>
             <div id="dropZone" class="drop-zone">Drop files to upload</div>
           </section>
@@ -103,11 +115,24 @@
     </div>
 
     <dialog id="modal" class="modal">
-      <button id="closeModal" class="icon-btn modal__close" title="Close">×</button>
+      <button id="closeModal" class="icon-btn modal__close" title="Close">X</button>
       <div id="modalBody"></div>
     </dialog>
 
     <script src="socket.io/socket.io.js"></script>
-    <script src="app.js"></script>
+    <script>
+      Promise.all([
+        navigator.serviceWorker
+          ? navigator.serviceWorker.getRegistrations().then(regs => Promise.all(regs.map(reg => reg.unregister())))
+          : Promise.resolve(),
+        window.caches
+          ? caches.keys().then(keys => Promise.all(keys.map(key => caches.delete(key))))
+          : Promise.resolve()
+      ]).finally(() => {
+        const script = document.createElement("script");
+        script.src = "app-account.js?v=1";
+        document.body.appendChild(script);
+      });
+    </script>
   </body>
 </html>
