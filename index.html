@@ -20,43 +20,32 @@
           <button id="themeToggle" class="icon-btn" title="Toggle theme">O</button>
         </header>
 
-        <label class="search-box">
-          <span>Search</span>
-          <input id="globalSearch" type="search" placeholder="Search messages, files, users">
-        </label>
-
         <section class="panel account-panel">
           <div class="panel__title">Account</div>
           <div id="currentAccount" class="current-account"></div>
+          <input type="file" id="pfpUpload" accept="image/*" hidden>
+          <button id="uploadPfpBtn" class="tool-pill" style="display:none; margin: 0 8px 8px;">Upload PFP</button>
+          
           <form id="accountForm" class="account-form">
-            <input id="displayNameInput" type="text" autocomplete="name" placeholder="Display name">
-            <input id="usernameInput" type="text" autocomplete="username" placeholder="username">
-            <input id="accountIdInput" type="text" autocomplete="off" placeholder="u-yourid">
-            <button type="submit">Create / switch</button>
+            <input id="displayNameInput" type="text" autocomplete="name" placeholder="Display name (Empty to login)">
+            <input id="usernameInput" type="text" autocomplete="username" placeholder="Username" required>
+            <input id="passwordInput" type="password" autocomplete="new-password" placeholder="Password" required>
+            <button type="submit">Login / Register</button>
           </form>
           <p id="accountStatus" class="form-status" role="status"></p>
         </section>
 
         <section class="panel">
-          <div class="panel__title">DM by user ID</div>
+          <div class="panel__title">Add Friend</div>
           <form id="dmByIdForm" class="dm-id-form">
-            <input id="dmUserIdInput" type="text" autocomplete="off" placeholder="u-mira">
-            <button type="submit">Open</button>
+            <input id="dmUserIdInput" type="text" autocomplete="off" placeholder="Enter username">
+            <button type="submit">Add</button>
           </form>
-          <p id="dmByIdStatus" class="form-status" role="status"></p>
         </section>
 
         <section class="panel">
-          <div class="panel__title">Direct messages</div>
+          <div class="panel__title">Friends</div>
           <div id="dmList" class="nav-list"></div>
-        </section>
-
-        <section class="panel compact">
-          <div class="panel__title">Smart tools</div>
-          <button class="tool-pill" data-smart="summary">AI summary</button>
-          <button class="tool-pill" data-smart="translate">Translate</button>
-          <button class="tool-pill" data-smart="moderate">Mod queue</button>
-          <button class="tool-pill" data-smart="bots">Bots/API</button>
         </section>
       </aside>
 
@@ -65,74 +54,34 @@
           <button id="mobileMenu" class="icon-btn mobile-only" title="Open navigation">Menu</button>
           <div>
             <h1 id="roomName">Direct messages</h1>
-            <p id="roomTopic">Private chat</p>
+            <p id="roomTopic">Select a friend to start chatting</p>
           </div>
           <div class="header-actions">
             <button class="icon-btn" id="voiceBtn" title="Voice call">Call</button>
             <button class="icon-btn" id="videoBtn" title="Video call">Cam</button>
-            <button class="icon-btn" id="screenBtn" title="Screen share">Share</button>
-            <button class="icon-btn" id="profileBtn" title="Profile">A</button>
           </div>
         </header>
 
         <div class="workspace">
           <section class="message-pane">
-            <div id="pinnedBar" class="pinned-bar hidden"></div>
-            <div id="typingLine" class="typing-line"></div>
             <div id="messageList" class="messages" aria-live="polite"></div>
 
             <form id="composer" class="composer">
               <input id="fileInput" type="file" multiple hidden>
               <button type="button" id="attachBtn" class="icon-btn" title="Attach files">+</button>
-              <button type="button" id="voiceNoteBtn" class="icon-btn" title="Voice note">Rec</button>
-              <textarea id="messageInput" rows="1" placeholder="Message BakBak"></textarea>
-              <button type="button" id="gifBtn" class="icon-btn" title="GIF/sticker">GIF</button>
+              <textarea id="messageInput" rows="1" placeholder="Message your friend..."></textarea>
               <button class="send-btn" title="Send message">Send</button>
             </form>
-            <div id="dropZone" class="drop-zone">Drop files to upload</div>
           </section>
-
-          <aside class="details" aria-label="DM details">
-            <section class="stats-grid">
-              <div><strong id="onlineCount">2</strong><span>Online</span></div>
-              <div><strong id="messageCount">0</strong><span>Messages</span></div>
-              <div><strong id="dmCount">0</strong><span>DMs</span></div>
-              <div><strong>PWA</strong><span>Ready</span></div>
-            </section>
-
-            <section class="detail-card">
-              <h2>Members</h2>
-              <div id="memberList" class="member-list"></div>
-            </section>
-
-            <section class="detail-card">
-              <h2>User IDs</h2>
-              <div id="userIdList" class="mini-list"></div>
-            </section>
-          </aside>
         </div>
       </main>
     </div>
 
-    <dialog id="modal" class="modal">
-      <button id="closeModal" class="icon-btn modal__close" title="Close">X</button>
-      <div id="modalBody"></div>
-    </dialog>
-
     <script src="socket.io/socket.io.js"></script>
     <script>
-      Promise.all([
-        navigator.serviceWorker
-          ? navigator.serviceWorker.getRegistrations().then(regs => Promise.all(regs.map(reg => reg.unregister())))
-          : Promise.resolve(),
-        window.caches
-          ? caches.keys().then(keys => Promise.all(keys.map(key => caches.delete(key))))
-          : Promise.resolve()
-      ]).finally(() => {
-        const script = document.createElement("script");
-        script.src = "app-account.js?v=1";
-        document.body.appendChild(script);
-      });
+      const script = document.createElement("script");
+      script.src = "app-account.js?v=2";
+      document.body.appendChild(script);
     </script>
   </body>
 </html>

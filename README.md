@@ -11,4 +11,4 @@ BakBak is a modern communication platform with a WhatsApp-clean interface and Di
 - Customization for themes, emojis, stickers, avatars, server icons, and channel icons.
 - PWA support and responsive layout for desktop and mobile.
 
-The site root is the front end, so GitHub Pages can serve `/bakbak/` directly from `index.html`, while Render runs the Node backend for realtime features.
+Original Official Website: https://dev-aemni.github.io/bakbak/

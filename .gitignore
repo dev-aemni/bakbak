@@ -8,3 +8,4 @@ uploads/*
 *.bat
 *.ps1
 AGENT.md
+*.zip

@@ -1,508 +1,244 @@
-const socket = io();
-window.bakbakVersion = "account-v2";
-const savedUserId = localStorage.getItem("bakbak:me");
+let currentUser = JSON.parse(localStorage.getItem('bakbakUser')) || null;
+let currentFriend = null;
+let currentE2EKey = null;
+let socket = null;
 
-const state = {
-  me: savedUserId || "u-admin",
-  db: null,
-  activeChat: null,
-  uploads: [],
-  editingId: null,
-  replyTo: null
+const UI = {
+    accountForm: document.getElementById('accountForm'),
+    displayNameInput: document.getElementById('displayNameInput'),
+    usernameInput: document.getElementById('usernameInput'),
+    passwordInput: document.getElementById('passwordInput'),
+    currentAccount: document.getElementById('currentAccount'),
+    uploadPfpBtn: document.getElementById('uploadPfpBtn'),
+    pfpUpload: document.getElementById('pfpUpload'),
+    dmByIdForm: document.getElementById('dmByIdForm'),
+    dmUserIdInput: document.getElementById('dmUserIdInput'),
+    dmList: document.getElementById('dmList'),
+    messageList: document.getElementById('messageList'),
+    composer: document.getElementById('composer'),
+    messageInput: document.getElementById('messageInput'),
+    roomName: document.getElementById('roomName')
 };
 
-const els = {
-  dmList: document.querySelector("#dmList"),
-  memberList: document.querySelector("#memberList"),
-  userIdList: document.querySelector("#userIdList"),
-  messageList: document.querySelector("#messageList"),
-  messageInput: document.querySelector("#messageInput"),
-  composer: document.querySelector("#composer"),
-  roomName: document.querySelector("#roomName"),
-  roomTopic: document.querySelector("#roomTopic"),
-  pinnedBar: document.querySelector("#pinnedBar"),
-  typingLine: document.querySelector("#typingLine"),
-  messageCount: document.querySelector("#messageCount"),
-  onlineCount: document.querySelector("#onlineCount"),
-  dmCount: document.querySelector("#dmCount"),
-  attachBtn: document.querySelector("#attachBtn"),
-  fileInput: document.querySelector("#fileInput"),
-  dropZone: document.querySelector("#dropZone"),
-  globalSearch: document.querySelector("#globalSearch"),
-  modal: document.querySelector("#modal"),
-  modalBody: document.querySelector("#modalBody"),
-  closeModal: document.querySelector("#closeModal"),
-  mobileMenu: document.querySelector("#mobileMenu"),
-  sidebar: document.querySelector(".sidebar"),
-  themeToggle: document.querySelector("#themeToggle"),
-  currentAccount: document.querySelector("#currentAccount"),
-  accountForm: document.querySelector("#accountForm"),
-  displayNameInput: document.querySelector("#displayNameInput"),
-  usernameInput: document.querySelector("#usernameInput"),
-  accountIdInput: document.querySelector("#accountIdInput"),
-  accountStatus: document.querySelector("#accountStatus"),
-  dmByIdForm: document.querySelector("#dmByIdForm"),
-  dmUserIdInput: document.querySelector("#dmUserIdInput"),
-  dmByIdStatus: document.querySelector("#dmByIdStatus")
-};
+async function init() {
+    socket = io();
+    
+    if (currentUser) {
+        showLoggedIn();
+        socket.emit('join', currentUser.id);
+        loadFriends();
+    }
+    
+    UI.accountForm.onsubmit = async (e) => {
+        e.preventDefault();
+        const username = UI.usernameInput.value.trim();
+        const password = UI.passwordInput.value;
+        const displayName = UI.displayNameInput.value.trim();
+        const action = displayName ? 'register' : 'login';
+        
+        const res = await fetch('/api/auth', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({username, password, displayName, action})
+        });
+        const data = await res.json();
+        if (data.error) return alert(data.error);
+        
+        currentUser = data;
+        localStorage.setItem('bakbakUser', JSON.stringify(currentUser));
+        showLoggedIn();
+        socket.emit('join', currentUser.id);
+        loadFriends();
+    };
 
-async function boot() {
-  const response = await fetch("api/state");
-  state.db = await response.json();
-  if (!findUser(state.me)) state.me = state.db.users[0]?.id || "u-admin";
-  localStorage.setItem("bakbak:me", state.me);
-  normalizeDmState();
-  renderAll();
-  joinActiveChat();
-  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
-}
-
-function normalizeDmState() {
-  state.db.chats = (state.db.chats || []).filter(chat => chat.type === "dm" && chat.members.includes(state.me));
-  state.activeChat = state.db.chats[0]?.id || null;
-}
-
-function renderAll() {
-  renderAccount();
-  renderDms();
-  renderPeople();
-  renderMessages();
-}
-
-function renderAccount() {
-  const me = findUser(state.me);
-  if (!me) {
-    els.currentAccount.innerHTML = "<p class='empty-state'>Create an account to chat.</p>";
-    return;
-  }
-  els.currentAccount.innerHTML = `
-    <div class="member">
-      <span class="avatar" style="background:${escapeAttr(me.theme)}">${escapeHtml(me.avatar)}</span>
-      <div><strong>${escapeHtml(me.displayName)}</strong><small>${escapeHtml(me.id)} / @${escapeHtml(me.username)}</small></div>
-    </div>
-  `;
-  els.displayNameInput.value = me.displayName;
-  els.usernameInput.value = me.username;
-  els.accountIdInput.value = me.id;
-  document.querySelector("#profileBtn").textContent = me.avatar;
-}
-
-function renderDms() {
-  els.dmList.innerHTML = state.db.chats.map(chat => {
-    const partner = getDmPartner(chat);
-    return `
-      <button class="nav-item ${chat.id === state.activeChat ? "active" : ""}" data-chat="${chat.id}">
-        <span class="mini-avatar" style="background:${escapeAttr(partner?.theme || "#53bdeb")}">${escapeHtml(partner?.avatar || "@")}</span>
-        <span>${escapeHtml(partner?.displayName || chat.name)}</span>
-        <small>${escapeHtml(partner?.id || "dm")}</small>
-      </button>
-    `;
-  }).join("") || "<p class='empty-state'>Open a DM by user ID.</p>";
-  els.dmCount.textContent = state.db.chats.length;
-  updateRoomHeader();
-}
-
-function renderPeople() {
-  els.memberList.innerHTML = state.db.users.map(user => `
-    <div class="member">
-      <span class="avatar" style="background:${escapeAttr(user.theme)}">${escapeHtml(user.avatar)}</span>
-      <div><strong>${escapeHtml(user.displayName)}</strong><small>${escapeHtml(user.role)} - ${escapeHtml(user.status)}</small></div>
-    </div>
-  `).join("");
-
-  els.userIdList.innerHTML = state.db.users
-    .filter(user => user.id !== state.me)
-    .map(user => `<button class="id-chip" data-user-id="${escapeAttr(user.id)}">${escapeHtml(user.id)} <span>${escapeHtml(user.displayName)}</span></button>`)
-    .join("") || "<p class='empty-state'>Create another account, then open it by ID.</p>";
-
-  els.onlineCount.textContent = state.db.users.filter(user => user.status === "online").length;
-}
-
-function renderMessages() {
-  const query = els.globalSearch.value.trim().toLowerCase();
-  let messages = state.db.messages.filter(message => message.channelId === state.activeChat);
-  if (query) {
-    messages = state.db.messages.filter(message => {
-      const author = findUser(message.authorId);
-      return (message.text || "").toLowerCase().includes(query) ||
-        (author?.displayName || "").toLowerCase().includes(query);
+    UI.uploadPfpBtn.onclick = () => UI.pfpUpload.click();
+    UI.pfpUpload.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const fd = new FormData();
+        fd.append('avatar', file);
+        const res = await fetch(`/api/pfp/${currentUser.id}`, { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.pfp) {
+            currentUser.pfp = data.pfp;
+            localStorage.setItem('bakbakUser', JSON.stringify(currentUser));
+            showLoggedIn();
+        }
+    };
+    
+    UI.dmByIdForm.onsubmit = async (e) => {
+        e.preventDefault();
+        const friendUsername = UI.dmUserIdInput.value.trim();
+        const res = await fetch('/api/friends/add', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ userId: currentUser.id, friendUsername })
+        });
+        const data = await res.json();
+        if (data.error) alert(data.error);
+        else {
+            UI.dmUserIdInput.value = '';
+            loadFriends();
+        }
+    };
+    
+    UI.composer.onsubmit = async (e) => {
+        e.preventDefault();
+        const text = UI.messageInput.value.trim();
+        if (!text || !currentFriend) return;
+        
+        // Client-side E2EE encryption before it leaves your device
+        const e2eText = await encryptMessage(text, currentE2EKey);
+        const msg = {
+            id: 'm-' + Date.now(),
+            channelId: getChannelId(currentUser.id, currentFriend.id),
+            authorId: currentUser.id,
+            text: e2eText, 
+            createdAt: Date.now()
+        };
+        
+        UI.messageInput.value = '';
+        socket.emit('sendMessage', msg);
+    };
+    
+    socket.on('receiveMessage', async (msg) => {
+        if (!currentFriend) return;
+        const channelId = getChannelId(currentUser.id, currentFriend.id);
+        if (msg.channelId === channelId) {
+            // Client-side decryption after server delivery
+            msg.text = await decryptMessage(msg.text, currentE2EKey);
+            renderMessage(msg);
+            UI.messageList.scrollTop = UI.messageList.scrollHeight;
+        }
     });
-  }
-  els.messageList.innerHTML = messages.map(renderMessage).join("") || renderEmptyMessages();
-  els.messageCount.textContent = state.db.messages.length;
-  renderPinned(messages);
-  els.messageList.scrollTop = els.messageList.scrollHeight;
 }
 
-function renderEmptyMessages() {
-  if (!state.activeChat) return "<div class='empty-state empty-state--center'>Open a DM by user ID to start chatting.</div>";
-  return "<div class='empty-state empty-state--center'>No messages here yet.</div>";
+function showLoggedIn() {
+    UI.accountForm.style.display = 'none';
+    UI.uploadPfpBtn.style.display = 'inline-block';
+    let pfpHtml = currentUser.pfp ? `<img src="${currentUser.pfp}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;">` : `<div class="mini-avatar">${currentUser.displayName[0].toUpperCase()}</div>`;
+    UI.currentAccount.innerHTML = `<div style="display:flex;align-items:center;gap:8px">${pfpHtml} <strong>${currentUser.displayName}</strong> <small>@${currentUser.username}</small></div><button class="tool-pill" onclick="logout()" style="margin-top:8px">Logout</button>`;
 }
 
-function renderMessage(message) {
-  const user = findUser(message.authorId) || state.db.users[0];
-  const mine = message.authorId === state.me;
-  const deleted = message.deletedAt;
-  const attachments = (message.attachments || []).map(renderAttachment).join("");
-  const preview = message.preview ? renderPreview(message.preview) : "";
-  const reactions = (message.reactions || []).map(item => `<button class="reaction" data-react="${message.id}" data-emoji="${escapeAttr(item.emoji)}">${escapeHtml(item.emoji)} ${item.count}</button>`).join("");
-  return `
-    <article class="message ${mine ? "mine" : ""} ${deleted ? "deleted" : ""}" data-message="${message.id}">
-      <span class="avatar" style="background:${escapeAttr(user.theme)}">${escapeHtml(user.avatar)}</span>
-      <div class="bubble">
-        <div class="message-meta">
-          <strong>${escapeHtml(user.displayName)}</strong>
-          <span>${time(message.createdAt)}</span>
-          ${message.editedAt ? "<span>edited</span>" : ""}
-          ${message.pinned ? "<span>pinned</span>" : ""}
+window.logout = function() {
+    localStorage.removeItem('bakbakUser');
+    location.reload();
+}
+
+async function loadFriends() {
+    const res = await fetch(`/api/friends/${currentUser.id}`);
+    const friends = await res.json();
+    UI.dmList.innerHTML = '';
+    friends.forEach(f => {
+        const btn = document.createElement('button');
+        btn.className = 'nav-item';
+        let pfpHtml = f.pfp ? `<img src="${f.pfp}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0;">` : `<div class="mini-avatar">${f.displayName[0].toUpperCase()}</div>`;
+        btn.innerHTML = `${pfpHtml} <span>${f.displayName}</span>`;
+        btn.onclick = (e) => openChat(f, e);
+        UI.dmList.appendChild(btn);
+    });
+}
+
+function getChannelId(u1, u2) {
+    return [u1, u2].sort().join('_');
+}
+
+async function openChat(friend, event) {
+    currentFriend = friend;
+    UI.roomName.textContent = friend.displayName;
+    document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+    if (event) event.currentTarget.classList.add('active');
+    
+    currentE2EKey = await getE2EEKey(currentUser.id, friend.id);
+    
+    const channelId = getChannelId(currentUser.id, friend.id);
+    const res = await fetch(`/api/messages/${channelId}`);
+    const msgs = await res.json();
+    
+    UI.messageList.innerHTML = '';
+    for (const msg of msgs) {
+        msg.text = await decryptMessage(msg.text, currentE2EKey);
+        renderMessage(msg);
+    }
+    UI.messageList.scrollTop = UI.messageList.scrollHeight;
+}
+
+function renderMessage(msg) {
+    const isMine = msg.authorId === currentUser.id;
+    const author = isMine ? currentUser : currentFriend;
+    let pfpHtml = author.pfp ? `<img src="${author.pfp}" class="avatar" style="object-fit:cover;">` : `<div class="avatar">${author.displayName[0].toUpperCase()}</div>`;
+    
+    const div = document.createElement('div');
+    div.className = `message ${isMine ? 'mine' : ''}`;
+    div.innerHTML = `
+        ${pfpHtml}
+        <div class="bubble">
+            <div class="message-meta"><strong>${author.displayName}</strong></div>
+            <div class="message-text">${escapeHtml(msg.text)}</div>
         </div>
-        <div class="message-text">${deleted ? "Message deleted" : linkify(escapeHtml(message.text || ""))}</div>
-        ${attachments}${preview}
-        <div class="message-actions">
-          ${reactions}
-          <button data-action="reply">Reply</button>
-          <button data-action="react">+ Emoji</button>
-          <button data-action="pin">Pin</button>
-          <button data-action="forward">Forward</button>
-          ${mine && !deleted ? `<button data-action="edit">Edit</button><button data-action="delete">Delete</button>` : ""}
-        </div>
-      </div>
-    </article>
-  `;
+    `;
+    UI.messageList.appendChild(div);
 }
 
-function renderAttachment(file) {
-  if (file.type === "image") return `<a class="attachment" href="${escapeAttr(file.url)}" target="_blank"><img src="${escapeAttr(file.url)}" alt="${escapeAttr(file.name)}"></a>`;
-  if (file.type === "video") return `<a class="attachment" href="${escapeAttr(file.url)}" target="_blank"><video src="${escapeAttr(file.url)}" controls></video></a>`;
-  if (file.type === "audio") return `<div class="attachment"><audio src="${escapeAttr(file.url)}" controls></audio><div class="attachment__file">${escapeHtml(file.name)}</div></div>`;
-  return `<a class="attachment attachment__file" href="${escapeAttr(file.url)}" target="_blank">File: ${escapeHtml(file.name)}</a>`;
+function escapeHtml(unsafe) {
+    return (unsafe || '').toString()
+         .replace(/&/g, "&amp;")
+         .replace(/</g, "&lt;")
+         .replace(/>/g, "&gt;")
+         .replace(/"/g, "&quot;")
+         .replace(/'/g, "&#039;");
 }
 
-function renderPreview(preview) {
-  const media = preview.kind === "image"
-    ? `<img src="${escapeAttr(preview.url)}" alt="">`
-    : preview.kind === "video"
-      ? `<video src="${escapeAttr(preview.url)}" controls muted></video>`
-      : "";
-  return `<a class="link-preview" href="${escapeAttr(preview.url)}" target="_blank">${media}<div class="preview-body"><strong>${escapeHtml(preview.title)}</strong><small>${escapeHtml(preview.url)}</small></div></a>`;
+// ---- Client-Side E2E System Utilities ---- //
+function bufferToBase64(buf) {
+    let binary = '';
+    const bytes = new Uint8Array(buf);
+    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+    return window.btoa(binary);
 }
 
-function renderPinned(messages) {
-  const pinned = messages.find(message => message.pinned && !message.deletedAt);
-  if (!pinned) {
-    els.pinnedBar.classList.add("hidden");
-    return;
-  }
-  els.pinnedBar.classList.remove("hidden");
-  els.pinnedBar.textContent = `Pinned: ${pinned.text}`;
+function base64ToBuffer(base64) {
+    const binary = window.atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes.buffer;
 }
 
-async function sendMessage(event) {
-  event.preventDefault();
-  const text = els.messageInput.value.trim();
-  if (!state.activeChat) {
-    setDmStatus("Open a DM before sending.", true);
-    return;
-  }
-  if (!text && !state.uploads.length) return;
-
-  const payload = {
-    channelId: state.activeChat,
-    authorId: state.me,
-    text,
-    attachments: state.uploads,
-    preview: buildPreview(text),
-    replyTo: state.replyTo
-  };
-
-  if (state.editingId) {
-    socket.emit("message:edit", { id: state.editingId, text });
-    state.editingId = null;
-  } else {
-    socket.emit("message:create", payload);
-  }
-
-  state.uploads = [];
-  state.replyTo = null;
-  els.messageInput.value = "";
-  els.messageInput.placeholder = "Message BakBak";
-  autosize();
+async function getE2EEKey(user1, user2) {
+    // Deterministic DM shared key generation
+    const ids = [user1, user2].sort().join('_');
+    const enc = new TextEncoder();
+    const keyMaterial = await crypto.subtle.digest("SHA-256", enc.encode("bakbak_e2ee_" + ids));
+    return crypto.subtle.importKey("raw", keyMaterial, {name: "AES-GCM"}, false, ["encrypt", "decrypt"]);
 }
 
-async function createOrSwitchAccount(event) {
-  event.preventDefault();
-  const id = normalizeUserId(els.accountIdInput.value || els.usernameInput.value || els.displayNameInput.value);
-  const existing = findUser(id);
-
-  if (existing) {
-    await switchAccount(existing.id);
-    setAccountStatus(`Switched to ${existing.displayName}.`);
-    return;
-  }
-
-  const response = await fetch("api/accounts", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      id,
-      username: els.usernameInput.value,
-      displayName: els.displayNameInput.value
-    })
-  });
-  const result = await response.json();
-  if (!response.ok) {
-    setAccountStatus(result.error || "Could not create account.", true);
-    return;
-  }
-
-  state.db.users.push(result.user);
-  await switchAccount(result.user.id);
-  setAccountStatus(`Created ${result.user.displayName}. Share ID ${result.user.id} to chat.`);
+async function encryptMessage(text, key) {
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encrypted = await crypto.subtle.encrypt({name: "AES-GCM", iv}, key, new TextEncoder().encode(text));
+    const combined = new Uint8Array(12 + encrypted.byteLength);
+    combined.set(iv, 0);
+    combined.set(new Uint8Array(encrypted), 12);
+    return bufferToBase64(combined.buffer);
 }
 
-async function switchAccount(userId) {
-  state.me = userId;
-  localStorage.setItem("bakbak:me", userId);
-  const response = await fetch("api/state");
-  state.db = await response.json();
-  state.db.chats = state.db.chats.filter(chat => chat.members.includes(state.me));
-  state.activeChat = state.db.chats[0]?.id || null;
-  renderAll();
-  joinActiveChat();
-}
-
-async function openDmByUserId(userId) {
-  const cleanId = normalizeUserId(userId);
-  if (!cleanId) return;
-
-  const response = await fetch("api/dm", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ userId: cleanId, me: state.me })
-  });
-  const result = await response.json();
-  if (!response.ok) {
-    setDmStatus(result.error || "Could not open DM.", true);
-    return;
-  }
-
-  upsertChat(result.chat);
-  if (result.user && !findUser(result.user.id)) state.db.users.push(result.user);
-  state.activeChat = result.chat.id;
-  joinActiveChat();
-  setDmStatus(`Opened DM with ${result.user.displayName}.`);
-  els.dmUserIdInput.value = "";
-  renderAll();
-  els.sidebar.classList.remove("open");
-  els.messageInput.focus();
-}
-
-function upsertChat(chat) {
-  const index = state.db.chats.findIndex(item => item.id === chat.id);
-  if (index >= 0) state.db.chats[index] = chat;
-  else state.db.chats.push(chat);
-}
-
-function joinActiveChat() {
-  if (state.activeChat) socket.emit("channel:join", state.activeChat);
-}
-
-function setAccountStatus(message, isError = false) {
-  els.accountStatus.textContent = message;
-  els.accountStatus.classList.toggle("error", isError);
-}
-
-function setDmStatus(message, isError = false) {
-  els.dmByIdStatus.textContent = message;
-  els.dmByIdStatus.classList.toggle("error", isError);
-}
-
-function buildPreview(text) {
-  const url = (text.match(/https?:\/\/\S+/i) || [])[0];
-  if (!url) return null;
-  const cleanUrl = url.replace(/[),.]+$/, "");
-  const image = /\.(png|jpe?g|gif|webp|avif)(\?.*)?$/i.test(cleanUrl);
-  const video = /\.(mp4|webm|mov|m4v)(\?.*)?$/i.test(cleanUrl);
-  return {
-    url: cleanUrl,
-    kind: image ? "image" : video ? "video" : "link",
-    title: image ? "Image preview" : video ? "Video preview" : "Link preview"
-  };
-}
-
-async function uploadFiles(files) {
-  for (const file of files) {
-    const form = new FormData();
-    form.append("file", file);
-    const response = await fetch("api/upload", { method: "POST", body: form });
-    state.uploads.push(await response.json());
-  }
-  els.messageInput.placeholder = `${state.uploads.length} file(s) ready. Add a caption`;
-}
-
-function updateRoomHeader() {
-  const chat = state.db.chats.find(item => item.id === state.activeChat);
-  const partner = chat ? getDmPartner(chat) : null;
-  els.roomName.textContent = partner ? partner.displayName : "Direct messages";
-  els.roomTopic.textContent = partner ? `Private DM - ${partner.id}` : "Open a DM by user ID";
-}
-
-function getDmPartner(chat) {
-  return state.db.users.find(user => chat.members.includes(user.id) && user.id !== state.me) || null;
-}
-
-function findUser(id) {
-  return state.db?.users?.find(user => user.id === id);
-}
-
-function normalizeUserId(value) {
-  const raw = String(value || "").trim().toLowerCase();
-  if (!raw) return "";
-  const withPrefix = raw.startsWith("u-") ? raw : `u-${raw}`;
-  return withPrefix.replace(/[^a-z0-9_-]/g, "-").replace(/-+/g, "-").slice(0, 30);
-}
-
-function time(value) {
-  return new Intl.DateTimeFormat([], { hour: "2-digit", minute: "2-digit" }).format(value);
-}
-
-function linkify(text) {
-  return text.replace(/(https?:\/\/[^\s<]+)/g, `<a href="$1" target="_blank" rel="noopener">$1</a>`);
-}
-
-function escapeHtml(value) {
-  return String(value ?? "").replace(/[&<>"']/g, char => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#039;"
-  }[char]));
-}
-
-function escapeAttr(value) {
-  return escapeHtml(value).replace(/`/g, "&#096;");
-}
-
-function autosize() {
-  els.messageInput.style.height = "auto";
-  els.messageInput.style.height = `${Math.min(140, els.messageInput.scrollHeight)}px`;
-}
-
-function openModal(title, html) {
-  els.modalBody.innerHTML = `<h2>${escapeHtml(title)}</h2>${html}`;
-  els.modal.showModal();
-}
-
-document.addEventListener("click", event => {
-  const chatButton = event.target.closest("[data-chat]");
-  if (chatButton) {
-    state.activeChat = chatButton.dataset.chat;
-    joinActiveChat();
-    renderDms();
-    renderMessages();
-    els.sidebar.classList.remove("open");
-  }
-
-  const userIdButton = event.target.closest("[data-user-id]");
-  if (userIdButton) openDmByUserId(userIdButton.dataset.userId);
-
-  const messageEl = event.target.closest("[data-message]");
-  const action = event.target.closest("[data-action]")?.dataset.action;
-  if (messageEl && action) {
-    const id = messageEl.dataset.message;
-    const message = state.db.messages.find(item => item.id === id);
-    if (!message) return;
-    if (action === "react") socket.emit("message:react", { id, emoji: "OK" });
-    if (action === "pin") socket.emit("message:pin", { id });
-    if (action === "delete") socket.emit("message:delete", { id });
-    if (action === "edit") {
-      state.editingId = id;
-      els.messageInput.value = message.text;
-      els.messageInput.focus();
-      autosize();
+async function decryptMessage(base64, key) {
+    try {
+        const combined = new Uint8Array(base64ToBuffer(base64));
+        const iv = combined.slice(0, 12);
+        const data = combined.slice(12);
+        const decrypted = await crypto.subtle.decrypt({name: "AES-GCM", iv}, key, data);
+        return new TextDecoder().decode(decrypted);
+    } catch(e) {
+        return base64; 
     }
-    if (action === "reply") {
-      state.replyTo = id;
-      els.messageInput.placeholder = `Replying to ${findUser(message.authorId)?.displayName || "message"}`;
-      els.messageInput.focus();
+}
+
+// Global enter to submit
+UI.messageInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        UI.composer.dispatchEvent(new Event('submit'));
     }
-    if (action === "forward") {
-      els.messageInput.value = `Forwarded: ${message.text}`;
-      els.messageInput.focus();
-      autosize();
-    }
-  }
-
-  const reaction = event.target.closest("[data-react]");
-  if (reaction) socket.emit("message:react", { id: reaction.dataset.react, emoji: reaction.dataset.emoji });
 });
 
-document.querySelector("#voiceBtn").addEventListener("click", () => openModal("Voice call", "<p>Voice calling controls are ready for the production RTC layer.</p><div class='feature-tags'><span>Muted</span><span>Push-to-talk</span><span>Noise suppression</span><span>Recording off</span></div>"));
-document.querySelector("#videoBtn").addEventListener("click", () => openModal("Video call", "<p>Group video calls and live streaming can connect to WebRTC/Twilio/LiveKit from this surface.</p>"));
-document.querySelector("#screenBtn").addEventListener("click", () => openModal("Screen share", "<p>Screen sharing permission starts from this control in supported browsers.</p>"));
-document.querySelector("#profileBtn").addEventListener("click", () => {
-  const me = findUser(state.me);
-  openModal("Profile", `<p><strong>${escapeHtml(me.displayName)}</strong><br>${escapeHtml(me.id)}<br>${escapeHtml(me.role)} - ${escapeHtml(me.status)}</p><div class='feature-tags'><span>Banner</span><span>Bio</span><span>Social links</span><span>Custom theme</span></div>`);
-});
-document.querySelector("#gifBtn").addEventListener("click", () => {
-  els.messageInput.value += " https://media.giphy.com/media/JIX9t2j0ZTN9S/giphy.gif";
-  els.messageInput.focus();
-});
-document.querySelector("#voiceNoteBtn").addEventListener("click", () => openModal("Voice note", "<p>Use the upload button for audio files now. Browser microphone recording can be added with MediaRecorder next.</p>"));
-
-document.querySelectorAll("[data-smart]").forEach(button => {
-  button.addEventListener("click", () => {
-    const title = button.textContent;
-    openModal(title, "<p>This panel is ready for AI summaries, translation, smart search, voice-to-text, text-to-speech, moderation assistance, bot API keys, and webhooks.</p>");
-  });
-});
-
-els.accountForm.addEventListener("submit", createOrSwitchAccount);
-els.dmByIdForm.addEventListener("submit", event => {
-  event.preventDefault();
-  openDmByUserId(els.dmUserIdInput.value);
-});
-els.composer.addEventListener("submit", sendMessage);
-els.attachBtn.addEventListener("click", () => els.fileInput.click());
-els.fileInput.addEventListener("change", event => uploadFiles(event.target.files));
-els.messageInput.addEventListener("input", () => {
-  autosize();
-  const me = findUser(state.me);
-  if (state.activeChat) socket.emit("typing", { channelId: state.activeChat, name: me?.displayName || state.me });
-});
-els.globalSearch.addEventListener("input", renderMessages);
-els.closeModal.addEventListener("click", () => els.modal.close());
-els.mobileMenu.addEventListener("click", () => els.sidebar.classList.toggle("open"));
-els.themeToggle.addEventListener("click", () => document.body.classList.toggle("light"));
-
-document.addEventListener("dragover", event => {
-  event.preventDefault();
-  els.dropZone.classList.add("visible");
-});
-document.addEventListener("dragleave", () => els.dropZone.classList.remove("visible"));
-document.addEventListener("drop", async event => {
-  event.preventDefault();
-  els.dropZone.classList.remove("visible");
-  await uploadFiles(event.dataTransfer.files);
-});
-
-socket.on("message:new", message => {
-  if (!state.db.messages.some(item => item.id === message.id)) state.db.messages.push(message);
-  if (message.channelId === state.activeChat) renderMessages();
-});
-socket.on("message:updated", message => {
-  const index = state.db.messages.findIndex(item => item.id === message.id);
-  if (index >= 0) state.db.messages[index] = message;
-  renderMessages();
-});
-socket.on("account:new", user => {
-  if (!findUser(user.id)) state.db.users.push(user);
-  renderPeople();
-});
-socket.on("typing", data => {
-  els.typingLine.textContent = `${data.name} is typing...`;
-  clearTimeout(window.typingTimer);
-  window.typingTimer = setTimeout(() => { els.typingLine.textContent = ""; }, 1200);
-});
-socket.on("presence", () => {
-  els.onlineCount.textContent = Number(els.onlineCount.textContent || 2);
-});
-
-boot();
+init();
